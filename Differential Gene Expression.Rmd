@@ -1,0 +1,226 @@
+---
+title: "C_FindClusters"
+author: "Phi"
+date: "2/27/2021"
+output: html_document
+---
+
+```{r}
+BiocManager::install("MAST")
+install.packages('xlsx')
+```
+
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(ape)
+library(cowplot)
+library(Matrix)
+library(MAST)
+#library(xlsx) 
+#find out where you are. The getwd command seems to default to where ever this .Rmd file is located, depsite using setwd
+getwd()
+```
+
+
+Load in your filtered dataset
+```{r}
+dir= "/Users/phinguyen/Dropbox (Personal)/Hen Lab/Data/SingleCell RNA-seq/"
+load(file.path(dir))
+
+```
+
+
+Calculate Differentially Expressed genes.
+
+*FIND MARKERS* - compare specific clusters vs specific clusters
+```{r}
+Idents(sobject) = "condition"
+levels(sobject)
+
+# Find all DEG's of cluster x. If the ident.2 parameter is omitted or set to NULL, FindMarkers will test for differentially expressed features between the group specified by ident.1 and all other cells.
+
+clusterX.markers <- FindMarkers(sobject, ident.1 = "Flx", ident.2 = "Cort", 
+                                min.pct = 0.0,
+                                logfc.threshold = 0.0) 
+head(clusterX.markers, n = 20)
+
+
+dir= "/Users/phinguyen/Library/CloudStorage/Dropbox/Hen Lab/Data/SingleCell RNA-seq"
+
+cell = "1_"
+group = "Flx_vs_Cort"
+write.csv(clusterX.markers,file = file.path(dir,
+          paste0(cell,group,".csv")))
+
+```
+
+
+*Find background gene list for Metascape*
+```{r}
+# Find Background genes
+# Change clustering resolution to 1 cluster 
+
+Idents(sobject) = "seurat_clusters"
+levels(sobject)
+
+# Find all DEG's of cluster x. If the ident.2 parameter is omitted or set to NULL, FindMarkers will test for differentially expressed features between the group specified by ident.1 and all other cells.
+#Can set object Identity to other metadata and set ident.1 to 'young' and 'old' for "bulk" analysis
+
+clusterX.markers <- FindMarkers(sobject, ident.1 = c("0"), ident.2 = "0", 
+                                min.pct = -Inf,
+                                logfc.threshold = -Inf) 
+head(clusterX.markers, n = 20)
+
+
+dir= "/Users/phinguyen/Dropbox (Personal)/Hen Lab/Data/SingleCell RNA-seq/Spreadsheets/HN1-4/Metascape/AllNeurons_SCT-WGCNA_Yellow_IncludeBackground"
+
+write.csv(clusterX.markers,file = file.path(dir,
+          paste0("FindMarkers_ALL GENES_Neurons.csv")))
+```
+
+
+*FIND ALL MARKERS* - find DE genes for every cluster compared to all remaining cells
+```{r,results = "hide",eval = FALSE}
+# Need to be sure you're calculating DE's from the correct clusters
+Idents(sobject) = "condition"
+levels(sobject)
+
+markers_all <- FindAllMarkers(
+    object = sobject,
+    #features = NULL, # Genes to test. Default is to use all genes, but can use VariableFeatures(sobject) to test most variable genes
+    test.use = "MAST",
+    # Denotes which statistical test to use (default is "wilcox"). "DEseq2" is also an option.
+    only.pos = FALSE,  
+    # TRUE will return only the genes that are upregulated
+    min.pct = 0.15,  
+    # only test genes that are detected in a minimum fraction of cells in either of the two populations. Meant to speed up the function by not testing genes that are very infrequently expressed. Default is 0.1
+    logfc.threshold = 0.2
+    # minimum log2 fold change for average expression of gene in cluster relative to the average expression in all other clusters combined. Default is 0.25.
+)
+
+dir= "/Users/phinguyen/Dropbox (Personal)/Hen Lab/Data/SingleCell RNA-seq"
+
+write.csv(markers_all,file = file.path(dir,paste0("FindAllMarkers.csv")))
+```
+
+
+Or you can run "bulk-seq" like analyses based on your original sample IDs: 
+```{r}
+table(sobject$ID)
+
+#can pick any metadata column
+column = "ID"
+#default cluster
+cluster1 = "young FC"    
+#cluster of interest
+cluster2 = "young NS"
+```
+
+```{r,results = "hide", eval = FALSE}
+Idents(sobject) = column
+markers = FindMarkers(sobject,
+                      ident.1 = cluster1,
+                      ident.2 = cluster2,
+                      only.pos=F,
+                      logfc.threshold = 0.2,
+                      min.pct = 0.1,
+                      test.use = "MAST")
+write.csv(markers,file.path(dir,"Spreadsheets",paste0("3_FindMarkers_youngFC_vs_youngNS.csv")))
+```
+
+
+
+
+Make the HEATMAP
+```{r}
+#Establish cutoffs for heatmaps
+pval = 1e-8 #max p-value for significance
+lfc = 0.25 #minimum log fold change
+minpct = 0 #if you want to subset by percent cells in that cluster expressing the gene
+maxpct = 1
+single = F #should each gene be a marker of a single cluster only
+hgenes = 3 #how many genes should be in the heatmap per cluster
+ncells = 200 #max # of cells per heatmap column
+column = "seurat_clusters" #division you care about
+heatmap_genes = 5 
+
+Idents(sobject) = "sample_description"
+
+#read in a DE gene file
+markers = read.csv(file.path(dir,"Spreadsheets",paste0("test.csv")),stringsAsFactors = F)
+
+#Select only the genes that pass thresholds
+markers = markers[markers$p_val_adj<pval,]
+
+#pick only positives, or restrict by min/max pct expression using pct1/2
+markers = markers[markers$avg_logFC > lfc,] 
+markers = markers[markers$pct.1 > minpct & markers$pct.2 < maxpct,]
+
+#If you want, select markers that define a single cluster
+if (single){markers <- markers[markers$gene %in% names(table(markers$gene))[table(markers$gene) == 1],] }
+
+table(markers$cluster)
+
+topgenes <- markers %>% group_by(cluster) %>% top_n(heatmap_genes, avg_logFC) #heatmap_genes was ngenes
+topgenes = topgenes[order(topgenes$cluster),]
+
+#Subset each cluster to ncells
+cellnames = sobject@meta.data[,column]
+names(cellnames) = colnames(sobject)
+clusters = levels(as.factor(cellnames))
+newcellnames = NULL
+for (cluster in clusters){
+  n = length(cellnames[cellnames == cluster])
+  if (n > ncells){n = ncells}
+  newcluster = sample(cellnames[cellnames == cluster],n, replace = F)
+  newcellnames = c(newcellnames,newcluster)
+}
+
+#check
+table(newcellnames)
+
+#Make heatmap
+setEPS()
+postscript(file.path(dir,"Heatmaps", paste0(iterationname,"_",column,"_",pval,"_ncells",ncells,"heatmap.eps")))
+DoHeatmap(
+    object = sobject, 
+    features = c(topgenes$gene),
+    cells = names(newcellnames),
+    group.by = column,
+    size = 5,
+    label = T,
+    draw.lines = T
+)
+
+dev.off()
+```
+
+Print heatmap to console
+```{r}
+DoHeatmap(
+    object = sobject, 
+    features = c(topgenes$gene),
+    cells = names(newcellnames),
+    group.by = column,
+    size = 5,
+    label = T,
+    draw.lines = T,
+    lines.width = 5
+)
+
+DimHeatmap(sobject, dims=2)
+```
+
+```{r}
+#code to separate heatmaps by samples
+
+cells.1 <- WhichCells(object, idents = 'a')
+cells.2 <- WhichCells(object, idents = 'b')
+hm1 <- DoHeatmap(object, cells = cells.1)
+hm2 <- DoHeatmap(object, cells = cells.2)
+```
+
+

@@ -1,0 +1,445 @@
+---
+title: "Seurat_Code_Filtering_2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Install packages
+```{r}
+#install.packages("BiocManager")
+#BiocManager::install("Seurat")
+#BiocManager::install("ggplot2")
+#install.packages("dplr")
+#install.packages("ape")
+#install.packages("cowplot")
+#install.packages("Matrix")
+#install.packages("clustree")
+#install.packages("igraph")
+install.packages('patchwork')
+install.packages('stringr')
+BiocManager::install('Nebulosa')
+install.packages("qs")
+# Installing scTransform v2
+# install glmGamPoi
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("glmGamPoi")
+# install sctransform from Github
+devtools::install_github("satijalab/sctransform", ref = "develop")
+devtools::install_github(repo = "samuel-marsh/scCustomize")
+
+if (!require("devtools"))
+  install.packages("devtools")
+devtools::install_github("Winnie09/Palo")
+
+```
+
+Load packages into your workspace. 
+```{r}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(ape)
+library(cowplot)
+library(Matrix)
+library(sctransform)
+library(clustree)
+library(tidyverse)
+library(magrittr)
+library(RColorBrewer)
+library(patchwork)
+#library(glmGamPoi)
+library(scCustomize)
+library(qs)
+library(Nebulosa)
+library(Palo)
+
+```
+
+
+```{r}
+#Specify your preferred directory for all input + output
+dir= "/Users/phinguyen/Dropbox (Personal)/Hen Lab/Data/SingleCell RNA-seq/Seurat/Seurat_HN5-8_Multi_Joint/1_SCT_2022-9-6.RData"
+
+#Specify exactly where your seurat files are
+# datafolder = "Seurat_HN1-4"
+
+#the EXACT data file you want to open from the file you specified with "datafolder"
+# filename = "1_DG_SCT_2023-1-17.RData"
+
+#set up folders
+QCfolder = "QC"
+Plotfolder = "Plots"
+
+#This name needs to match your project name within the seurat object
+#project<-"AgingSC" 
+
+#Specify your organism; capitalize the first letter (i.e. "Mouse", "Human","Zebrafish","Rat")
+organism = "Mouse"
+
+#metrics you want to look at for QC
+m = c("nCount_RNA","nFeature_RNA","percent.mito")
+
+#You can add in housekeeping genes if you want them to be scaled always; otherwise set to "NULL"
+add.genes = NULL
+
+#metadata dimensions you want to cluster on
+#dims = c("seurat_clusters","ID","Cell_Type","Condition")
+
+#edit to include all desired celltypes to subset on later; if not subsetting, set to "all"
+keep = "all"
+
+```
+
+
+Load in your filtered dataset
+```{r}
+# load(file.path(dir,datafolder,filename))
+load(file.path(dir))
+```
+
+Function to print multiple graphs: 
+```{r}
+PrintSeuratGraph = function(namecard = "a",seurat_object = sobject,graphtype = "feature",feature = NULL,group = NULL,split=NULL,cellnames=NULL){
+  if (!is.null(cellnames)){
+    Idents(seurat_object) = cellnames[1]
+    cells = colnames(seurat_object)[Idents(seurat_object) %in% cellnames[2:length(cellnames)]]} 
+  else {cells = cellnames}
+  if (graphtype == "feature"){
+    graph = FeaturePlot(seurat_object,features = feature,split.by = split, cells = cells,cols = c("lightyellow","darkred"))
+  }
+  if (graphtype == "violin"){
+    graph = VlnPlot(seurat_object,features = feature, pt.size = 0.1, idents = cellnames[2:length(cellnames)],group.by = group, split.by = split)
+  }
+  if (graphtype == "dim"){
+    graph = DimPlot(seurat_object,cells = cells, group.by = group, split.by = split)
+    
+  }
+  
+  name = paste0(feature,"_",graphtype,namecard,".eps")
+  graph
+  setEPS()
+  postscript(file.path(dir,Plotfolder,name))
+  print(graph) 
+  dev.off()
+}
+
+```
+
+
+
+*##############################**##############################*
+
+#Find variable features, normalize, scale, run PCA, clustering, umap
+*SCTransform*
+Normalization and variance stabilization (Hafemeister and Satija, 2019 https://pubmed.ncbi.nlm.nih.gov/31870423/)
+```{r, results='hide',eval = FALSE}
+# Good idea to save prior to this step b/c may crash R.
+
+#Choose what to regress out for sctransform- could be age, sex, or any metadata column
+regress = c("nCount_RNA", "percent.mito") #"orig.ident"
+
+sobject <- SCTransform(sobject, vars.to.regress = regress, assay = "RNA", verbose = T, variable.features.n = 3000, conserve.memory = T, vst.flavor = NULL)
+                         #vst.flavor = "v2" #vst.flavor v2 specifies SCtransform version 2
+                        # method = "glmGamPoi"
+# "limit reachediteration" error message is ok.
+
+```
+
+Show most variable genes
+```{r}
+labels <- c(head(VariableFeatures(sobject),20),add.genes)
+plot1 = VariableFeaturePlot(sobject)
+LabelPoints(plot=plot1, points = labels, repel = F, xnudge = 0.1, ynudge = 0.5)
+```
+
+*##############################**##############################*
+
+*Run PCA analysis and show elbow plot*
+```{r}
+sobject <- RunPCA(sobject,features = VariableFeatures(sobject),npcs = 50, verbose = FALSE)
+ElbowPlot(sobject,ndims = 50, reduction = "pca")
+
+
+print(sobject[["pca"]], dims = 1:20, nfeatures = 15)
+# Output will be 5 genes per PC. PCs enriched with Mito/heatshock/ribo genes can be excluded
+
+# Plot PCA
+PCAPlot(sobject, split.by = "condition")  
+PCAPlot(sobject, group.by = "condition")  
+
+#scCustomize heatmap of defined PC
+PC_Plotting(seurat_object = sobject, dim_number = 1)
+
+```
+
+
+Which PC's to include for downstream clustering? Can estimate qualitatively based on elbow plot or take quantitative approach to find PC's in which: 
+1.) The point where the PCs only contribute 5% of standard deviation and the principal components cumulatively contribute 90% of the standard deviation.
+2.) The point where the percent change in variation between the consecutive PCs is less than 0.1%.
+```{r}
+# Find the first metric (1)
+# Determine percent of variation associated with each PC
+pct <- sobject[["pca"]]@stdev / sum(sobject[["pca"]]@stdev) * 100
+
+# Calculate cumulative percents for each PC
+cumu <- cumsum(pct)
+
+# Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+metric1 <- which(cumu > 90 & pct < 5)[1]
+print("Last PC where cumulative % of SD is 90%")
+metric1
+
+# Find the second metric (2)
+# Determine the difference between variation of PC and subsequent PC
+metric2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+print("Last PC where % change of variation is more than 0.1%.")
+metric2
+
+```
+
+```{r}
+# PCs for dimensionality reduction. Can change if one of the pc's is for something you think is a technical error (i.e. HSP, RP, etc)
+pcs = c(1:30)
+
+print(sobject[["pca"]], dims = 1:20, nfeatures = 8)
+```
+
+Once you are satisfied with pc's, run clustering (UMAP, FindNeighbors, FindClusters): 
+```{r}
+# number of PC's defined at top of chunk above
+sobject<-RunUMAP(sobject,reduction = "pca",dims = pcs, verbose = F, n.neighbors = 30, min.dist = 0.3, n.epochs = NULL) 
+# Defaults for n.neighbors = 30 and min.dist = 0.3
+
+# Determine the K-nearest neighbor graph
+sobject<-FindNeighbors(sobject,dims=pcs,verbose=F) 
+
+# Quick UMAP test
+Idents(sobject) = "condition"
+DimPlot(sobject, label = T, label.size = 4, pt.size = .5, 
+        label.color = "black", order = F, repel = F)
+
+```
+
+
+
+Determine the clusters for various resolutions
+```{r}
+# clustering resolution; the last number will be saved as "seurat_clusters" in metadata
+res = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+#sobject<-FindClusters(sobject,verbose=F,resolution = res)
+sobject<-FindClusters(sobject,verbose=F,resolution = 0.9)
+
+#View(sobject@meta.data)
+#head(sobject@meta.data)
+
+
+# Test how UMAP plot looks with different clustering resolutions
+
+Idents(sobject) = "seurat_clusters"
+for (Cluster_resolution in c("SCT_snn_res.0.1",
+                             "SCT_snn_res.0.2",
+                             "SCT_snn_res.0.3",
+                             "SCT_snn_res.0.4",
+                             "SCT_snn_res.0.5",
+                             "SCT_snn_res.0.6",
+                             "SCT_snn_res.0.7",
+                             "SCT_snn_res.0.8",
+                             "SCT_snn_res.0.9")){
+  Idents(sobject) = Cluster_resolution
+  print(DimPlot(sobject, label = T, label.size = 6, pt.size = 1.0) + ggplot2::ggtitle(label = Cluster_resolution))
+      }
+
+```
+
+
+
+Clustree package to generate clustering trees- see how cells/clusters move as clustering resolution increases. Vignette: https://cran.r-project.org/web/packages/clustree/vignettes/clustree.html 
+```{r}
+clustree(sobject, prefix = "SCT_snn_res.") + theme(legend.position = "bottom")
+
+# Alternate algorithm for aesthetic variety
+#pdf(file.path(dir,"Plots", paste0("testClustree.pdf")))
+    clustree(sobject, prefix = "SCT_snn_res.", layout = "sugiyama", use_core_edges = FALSE) + 
+    guides(edge_colour = FALSE, edge_alpha = FALSE) + theme(legend.position = "bottom")
+#dev.off()
+
+# Overlay expression of gene of interest
+clustree(sobject, prefix = "SCT_snn_res.", layout = "sugiyama", use_core_edges = FALSE, node_colour = "Prox1", node_colour_aggr = "mean") + guides(edge_colour = FALSE, edge_alpha = FALSE) + theme(legend.position = "bottom") + scale_color_gradient(low = "lightblue", high = "red")
+    
+#clustree(sobject, prefix = "SCT_snn_res.", 
+        # node_colour = "nFeature_SCT", node_colour_aggr = "mean", 
+        # node_label = "nFeature_SCT", node_label_aggr = "max")
+
+#clustree(sobject, prefix = "SCT_snn_res.", 
+        # node_colour = "sc3_stability") #higher sc3_stability, the more stable the cluster across resolutions
+
+# Opacity of arrows indicates relative contribution of cells moving towards a cluster of a subsequent clustering resolution
+```
+
+
+*##############################**##############################*
+
+*PCA plots*
+```{r}
+Idents(sobject) = "seurat_clusters"
+
+# PCA
+DimPlot(sobject, reduction = "pca", group.by = "condition", dims = c(1,2)) # dims sets the PCs used for display
+DimPlot(sobject, reduction = "pca", group.by = "condition", dims = c(3,4))
+DimPlot(sobject, reduction = "pca", split.by = "condition", dims = c(1,2))
+#DimPlot_scCustom(sobject, reduction = "pca", split.by = "condition", dims = c(3,4), num_columns = 4, label = F)
+
+#setEPS()
+#postscript(file.path(dir,"Plots", paste0("name.eps")))
+#DimPlot()
+#dev.off()
+```
+
+*palopal* setup for optimized color palette
+```{r}
+UMAP <- sobject[["umap"]]@cell.embeddings
+
+CellClusters <- Idents(sobject)
+
+# Generate a color palette which is used by ggplot2
+gg_color_hue <- function(n) {
+  hues = seq(30, 500, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+pal <- gg_color_hue(length(unique(CellClusters)))
+
+# Run Palo to get the optimized palette
+palopal <- Palo(UMAP,CellClusters,pal)
+palopal # can use as input into cols argument of DimPlot
+```
+
+Feature and violin plots- QC metrics. 
+```{r}
+Idents(sobject) = "seurat_clusters"
+
+for (QC_metrics in c(m, "percent.ribo")){
+  Idents(sobject) = "seurat_clusters"
+  print(FeaturePlot(sobject, feature=QC_metrics,
+            pt.size = 0.4, label = T, label.size = 5, order = T, 
+            ))
+  Idents(sobject) = "ID"
+  print(VlnPlot(sobject, feature=QC_metrics, pt.size = 0))
+}
+
+# Feature and Violin Plots of QC metrics (split by ID)
+for (QC_metrics in m){
+  #print(FeaturePlot(sobject, feature=QC_metrics,
+           # pt.size = 0.4, label = T, label.size = 5, order = T, 
+           # split.by = "ID"))
+  print(VlnPlot(sobject, feature=QC_metrics, split.by = "condition", group.by = "seurat_clusters", pt.size = 0.1))
+}
+
+table(sobject$ID, sobject$seurat_clusters)
+```
+
+
+
+*Clustering Tree*
+```{r}
+#Build a clustering tree
+Idents(sobject) = "seurat_clusters"
+pcs = c(1:30)
+
+sobject= BuildClusterTree(sobject,dims = pcs)
+tree = sobject@tools$BuildClusterTree
+plot.phylo(tree, use.edge.length = T, direction = "downwards", 
+           node.pos = 1, srt = 90, adj = 0.5, label.offset = 0.75, font = 1, cex = 1.75, no.margin = T)
+```
+
+
+
+
+*##############################**##############################*
+
+Save QC Violin or Feature plots
+```{r}
+setEPS()
+postscript(file.path(dir, "Plots", paste0("2_VlnPlot_4-7-21.eps")))
+VlnPlot(sobject, feature = "Hexb", pt.size = 0.00)
+dev.off()
+```
+
+
+
+Exporting as EPS or pdf
+```{r}
+#Export EPS files of
+setEPS()
+  postscript(file.path(dir,QCfolder,paste0(filename,"_percent.mito.eps")))
+  # Can put feature/violin plot command below
+  VlnPlot(sobject,"percent.mito", pt.size = 0.0) 
+  #
+  dev.off()
+  
+# Copying table information
+table_to_export = table(sobject$ID, sobject$seurat_clusters)
+table_to_export
+# change table into data frame, which you can then copy + paste special into excel
+table_to_export2 <- as.data.frame.matrix(table_to_export)
+table_to_export2
+table(sobject$ID)
+
+table(sobject$ID, sobject$seurat_clusters, sobject$sex)
+```
+
+
+*##############################**##############################*
+
+Remove a metadata column
+```{r}
+# To remove a metadata column (either of these works)
+
+# sobject$cluster_age <- NULL
+# sobject[['SCT_snn_res.0.55']] <- NULL
+```
+
+Create new metadata columns
+```{r}
+#For a given cluster that appears to segregate by sample/condition, you can create new metadata column to separate cluster 1 old vs cluster 1 young and compare with FindMarkers to see the differences
+sobject$cluster_age = paste0(sobject$seurat_clusters,"_",sobject$age)
+Idents(sobject) = "cluster_age"
+#Idents(sobject) = "seurat_clusters"
+
+sobject@meta.data %>% 
+         View()
+
+DimPlot(sobject,
+        split.by = "age", label.size = 4, pt.size = 0.6,
+        label = T) 
+```
+
+
+
+Changing the order of values in a level
+```{r}
+#If you don't have Veh listed first (for ex. with the table function), then you can reorder them
+
+sobject$condition <- factor(sobject$condition, levels = c("Veh","Cort","Flx","ECS"))
+
+```
+
+
+*##############################**##############################*
+
+```{r}
+dir = "/Users/phinguyen/Dropbox (Personal)/Hen Lab/Data/SingleCell RNA-seq/Seurat/Seurat_HN1-4"
+
+save(sobject,file = file.path(dir,paste0("1_DG_SCT_2023-1-17.RData")))
+```
+
+
+
+*##############################**##############################*
+
+
+****

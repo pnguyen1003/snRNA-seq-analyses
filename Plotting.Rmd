@@ -1,0 +1,542 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-04-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(ape)
+library(cowplot)
+library(Matrix)
+library(sctransform)
+library(clustree)
+library(tidyverse)
+library(magrittr)
+library(RColorBrewer)
+library(patchwork)
+#library(glmGamPoi)
+library(scCustomize)
+library(qs)
+library(Nebulosa)
+library(Palo)
+library(viridis)
+library(Hmisc) # Cs() command adds quotes around each gene in a comma-separated gene list
+```
+
+
+```{r}
+dir = "/Users/phinguyen/Library/CloudStorage/Dropbox/Hen Lab/Data/SingleCell RNA-seq/1_Neurons-Microglia_Veh-Cort-Flx-ECS_May 2022/Seurat/Seurat_HN1-4/1_DG_SCT_2023-9-11_Dematured Analysis_Res 1-1"
+
+load(file.path(dir))
+```
+
+
+
+******************************************************
+*UMAP*
+
+*palopal* setup for optimized color palette
+```{r}
+Idents(sobject) = "seurat_clusters"
+
+UMAP <- sobject[["umap"]]@cell.embeddings
+
+CellClusters <- Idents(sobject)
+
+# Generate a color palette which is used by ggplot2
+gg_color_hue <- function(n) {
+  hues = seq(30, 500, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+pal <- gg_color_hue(length(unique(CellClusters)))
+
+# Run Palo to get the optimized palette
+palopal <- Palo(UMAP,CellClusters,pal)
+palopal # can use as input into cols argument of DimPlot
+```
+
+
+*UMAP - by CLUSTERS*
+```{r}
+Idents(sobject) = "seurat_clusters"
+label = T
+repel = F
+label.size = 5
+pt.size = 0.5
+raster = F
+
+DimPlot(sobject, label = label, repel = repel, label.size = label.size, pt.size = pt.size, order = T,
+        label.color = c("black"),
+        cols = palopal,
+        raster = raster) +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+```
+
+
+*UMAP - by cell_type*
+```{r}
+Idents(sobject) = "cell_type"
+label = F
+repel = F
+label.size = 5
+pt.size = 1.5
+raster = T
+
+
+DimPlot(sobject, label = label, repel = repel, label.size = label.size, pt.size = pt.size, order = T,
+        label.color = c("black"),
+        raster = raster) +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+```
+
+
+*UMAP - by condition*
+```{r}
+Idents(sobject) = "condition"
+label = F
+repel = F
+label.size = 5
+pt.size = 0.5
+raster = F
+
+
+DimPlot(sobject, label = label, repel = repel, label.size = label.size, pt.size = pt.size, order = c("Veh","Cort","Flx","ECS"),
+        label.color = c("black"),
+        cols = c("seagreen3","slateblue3","darkorange1","black"),
+        raster = raster) +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+```
+
+
+
+UMAP for each condition (showing cells from condition over non-condition)
+```{r}
+Idents(sobject) = "condition"
+levels(sobject)
+
+pt.size = 0.5
+
+Cluster_Highlight_Plot(sobject, cluster_name = "Veh", highlight_color = "black", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Veh") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "Cort", highlight_color = "darkorange1", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Cort") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "Flx", highlight_color = "slateblue3", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "ECS", highlight_color = "seagreen3", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "ECS") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+```
+
+
+```{r}
+Idents(sobject) = "cell_type"
+levels(sobject)
+
+pt.size = 0.25
+
+Cluster_Highlight_Plot(sobject, cluster_name = "CA3", highlight_color = "black", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Cort") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "CA1", highlight_color = "brown2", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx_5d") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "Oligodendrocytes", highlight_color = "cornflowerblue", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx_3wks") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+
+Cluster_Highlight_Plot(sobject, cluster_name = "OPCs", highlight_color = "forestgreen", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx_3wks") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+Cluster_Highlight_Plot(sobject, cluster_name = "CA2", highlight_color = "brown2", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx_3wks") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+Cluster_Highlight_Plot(sobject, cluster_name = "Mossy", highlight_color = "brown2", pt.size = pt.size,
+    background_color = "lightgray") + ggplot2::ggtitle(label = "Flx_3wks") +
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+```
+
+
+
+
+******************************************************
+*Feature Plots*
+
+
+iGenes
+```{r}
+Neurons = c("Rbfox3","Slc17a7","Syn1","Hexb","Gfap","Mbp") #Slc17a7 is vglut1
+
+DG = c("Prox1","Stxbp6","Dock10","Pde7b","Calb1","Pomc","Rbfox3")
+Immature = c("Prox1","Dcx","Stmn1","Ascl1","Igfbpl1","Neurod1","Sox11","Cd24a","Tmsb10", "Mki67","Calb1","Ablim3","Aldoc","Sox9","Hes5","Gfap")
+
+DGvsPyr = c("Dkk3","Ociad2","Cpne7") # non-DGGCs is Dkk3 and pyramids are Ociad2
+dDG_vDG = c("Prox1","Pdzd2","Lct","Gsg1l","Spata13","Stra6","Trhr","Cpne7","Grp","Nr2f2") #dDG up until Trhr
+dHipp = c("Cadm2","Epha7","Epha5")
+vHipp = c("Cadm1","Nrbp2")
+
+CA1 = c("Ccn3","Mpped1","Fibcd1","Satb2", "Bcl11b")
+CA2 = c("Cacng5","Tgfb1i1","Srl","Pygo1","F2r","Dusp5","Fgf5","Rgs14","Amigo2","Pcp4")
+CA3 = c("Prkcd","Vgll3","Coch","Grik4","Elavl2",
+        "Csf2rb2") #Csf2rb2 for MC and vCA3
+
+Mossy = c("Calb2","Csf2rb2","Nmb","Ap2s1","Ass1","Ajap1","Dusp26","Rgs12","Fgf1","Serpinf1","Emid1","Cda",
+       "Glipr1","Necab1","Calb2","Drd2","Sv2b","Foxg1") #Csf2rb2 for MC and vCA3, Foxg1 from Hochgerner 2018
+
+GABA = c("Gad1","Gad2","Slc32a1","Slc6a1","Erbb4","Pvalb","Sst","Cck","Vip","Calb2")
+Cajal_Retzius = c("Reln","Lhx5","Nhlh2","Trp73", "Diablo","Ndnf","Cacna2d2")
+
+
+Glia = c("Hexb","Ifitm3","Gfap","Apoe","Aqp4","Nes","Mki67","Mbp","Olig2","Cspg4","Col4a1")
+Microglia = Cs(Hexb,Cx3cr1,P2ry12,Aif1,Tmem119,Trem2,Gfap,Mbp,Rbfox3,Lyz2,Mrc1,Lyve1) #Lyz2=peripheral m0, Mrc1/Lyve1=perivascular m0, from Zeisel 2015
+Astrocytes = Cs(Aldh1l1,Gfap,Aqp4,Serpinf1,Gja1,Mfge8,Slco1c1,Sox9)
+Oligos = Cs(Trem2,Hexb,Gfap,Aqp4,Mbp,Mog,Cspg4,Pdgfra,Itpr2,Cnksr3,Rhob,Omg,Klk6) # Cspg4=Ng2,Pdgfra/NG2=OPC, Itpr2/Cnksr3=early oligo, Rhob/Omg=mid oligo, Klk6=late oligo -> from Zeisel 2015 
+Vascular = Cs(Nes,Prom1,Cldn5,Cdh5,Pecam1,Ocln,Flt1,Esam,Abcb1a,Vwf,Mfsd2a,Vtn,Higd1b)
+Pericyte = Cs(Cspg4,Pdgfrb,Anpep,Rgs5,Kcnj8,Abcc9,S1pr3,Mcam,Ifitm1,Baiap3,Ehd3)
+
+
+IEG = c("Fos","Arc","Npas4","Egr1","Penk","Acan")
+Opioid = c("Oprd1", "Oprm1","Penk", "Necab3", "Col6a1", "Htr1a","Htr2a","Htr4","Bdnf","Sv2a","Sv2b","Sv2c","Homer1") 
+Serotonin = c("Htr1a","Htr1b","Htr2a","Htr2b","Htr3a","Htr4","Htr5a","Htr7","Gabbr1","Gabbr1","Gria1","Gria2")
+
+```
+
+
+*FeaturePlots* of iGenes (FeaturePlot)
+```{r}
+Idents(sobject) = "condition"
+
+igenes = DG
+
+min.cutoff = 0
+label.size = 5
+pt.size = 0.1
+
+pal <- viridis(n = 10, option = "C", direction = 1)
+
+for (igene_variable in igenes){
+ print(FeaturePlot(sobject, features = igene_variable, 
+          pt.size = pt.size, label = F, repel = T, label.size = label.size,
+          cols = pal,
+          order = T, 
+          min.cutoff = min.cutoff,
+          raster = F) + 
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") + DarkTheme() 
+          )}
+```
+
+
+******************************************************
+
+*DotPlots*
+```{r}
+dotplot_genelist = Cs(Gfap,Satb2,Amigo2,Grik4,Prox1,Igfbpl1,Pecam1,Gad2,Lyve1,Tmem119,Drd2,Mbp,Pdgfra)
+
+
+dot.scale = 10 # max size of the dot
+scale.min = 0 #lower limit of % expressed
+scale.max = 100 #upper limit of % expressed
+col.min = 0.0 #lower limit of avg expression
+col.max = 3 #upper limit of avg expression
+aspect.ratio = 0.4 # sets square plot
+
+
+DotPlot(sobject, features = dotplot_genelist,
+        col.min = col.min,
+        col.max = col.max,
+        dot.scale = dot.scale, 
+        scale.min = scale.min, scale.max = scale.max) + 
+              theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+              aspect.ratio = aspect.ratio,
+              axis.line = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + 
+                xlab("") + ylab("") + 
+                coord_flip() +
+                scale_colour_gradient2(high = "brown1")
+
+```
+
+
+*Module scores*
+
+Hongjunsong gene list top50
+```{r}
+Song_Immature <- Cs(
+Igfbpl1,
+Neurod1,
+Sox11,
+Cd24a,
+Tmsb10,
+Prox1,
+Cplx2,
+Nfix,
+Zbtb20,
+Bcl11a,
+Stmn1,
+Ctxn1,
+Tubb2b,
+Cnih2,
+Mllt11,
+Pcp4,
+Dcx,
+Nfib,
+Map1b,
+Hist3h2ba,
+Marcksl1,
+Tuba1a,
+Tagln3,
+Tubb3,
+Epha4,
+Serf1,
+Tubb5,
+Pak7,
+H3f3b,
+Nsg1,
+Prdx2,
+Thra,
+Nnat,
+Celf2,
+Sstr2,
+Rbfox1,
+Synpr,
+Nfia,
+Rtn1,
+Ptma,
+Sema3c,
+Snca,
+Rbfox2,
+Elavl3,
+Cirbp,
+Eif3e,
+Bhlhe22,
+Tcf4,
+Gng2,
+Auts2,
+Ppp1r14c,
+Eef1g,
+Stmn4,
+Stmn2
+)
+```
+
+Module scores - Dot Plot
+```{r}
+# module scores
+modules = Cs(Stmn1,Igfbpl1,Dcx,Song_Immature_1)
+  #c("P132_1","P18_1","P5_1")
+  #"abGC_score_1"
+  #c("Granule_Immature_1","Neuroblast2_1")
+  #"Cs(Stmn1,Igfbpl1,Dcx,Song_Immature_1)
+# Cs(Igfbpl1,P5_1,Dock10,P132_1)
+
+
+dot.scale = 6.5 # max size of the dot
+scale.min = 0 #lower limit of % expressed
+scale.max = 50 #upper limit of % expressed
+col.min = 0.1 #lower limit of avg expression
+col.max = 0.75 #upper limit of avg expression
+aspect.ratio = 1.8 # sets square plot
+
+
+DotPlot(sobject, features = modules,
+        col.min = col.min,
+        col.max = col.max,
+        dot.scale = dot.scale, 
+        scale.min = scale.min, scale.max = scale.max) + 
+              theme(axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5, size = 15), axis.text.y = element_text(size=15),
+              aspect.ratio = aspect.ratio,
+              axis.line = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + 
+                xlab("") + ylab("") + 
+                coord_flip() +
+                scale_colour_gradient2(high = "brown1")
+
+```
+
+
+Module scores - Feature Plot
+```{r}
+# FeaturePlot
+
+min.cutoff = 0
+na_cutoff = 0.0
+
+for (igene_variable in modules){
+ print(FeaturePlot_scCustom(sobject, features = igene_variable, 
+          pt.size = pt.size, label = T, repel = T, label.size = label.size,
+          
+          order = T, 
+          min.cutoff = min.cutoff, na_cutoff = na_cutoff) + 
+              theme(aspect.ratio=1, # sets square plot
+              axis.title.x = element_text(hjust=0), axis.title.y = element_text(hjust=0), # adjust axes labels to corner
+              axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), # hides axes and ticks
+              panel.border = element_rect(colour = "black", fill=NA, size=1)) + # add border
+              labs(y= "UMAP 2", x = "UMAP 1") 
+          )}
+```
+
+
+
+
+
+******************************************************
+*Violin Plots*
+
+```{r}
+vlnplot_genelist = Cs(Calb1,Dcx,Igfbpl1,Stmn1)
+```
+
+```{r}
+#Idents(sobject) = "ID"
+levels(sobject)
+pt.size = 0.0
+
+VlnPlot(sobject, feature = vlnplot_genelist, pt.size = pt.size, slot = 'scale.data') + 
+    xlab("")
+
+#VlnPlot(sobject, feature = vlnplot_genelist, pt.size = pt.size, slot = 'counts') + 
+    xlab("")
+
+#VlnPlot(sobject, feature = vlnplot_genelist, pt.size = pt.size) + 
+    xlab("")
+
+```
+
+
+*##############################**##############################*
+
+Feature and violin plots- QC metrics
+```{r}
+Idents(sobject) = "seurat_clusters"
+
+m = c("nCount_RNA","nFeature_RNA","percent.mito")
+
+for (QC_metrics in c(m, "percent.ribo")){
+  Idents(sobject) = "seurat_clusters"
+  print(FeaturePlot(sobject, feature=QC_metrics,
+            pt.size = 0.4, label = T, label.size = 5, order = T, 
+            ))
+  Idents(sobject) = "seurat_clusters"
+  print(VlnPlot(sobject, feature=QC_metrics, pt.size = 0))
+}
+
+# Feature and Violin Plots of QC metrics (split by ID)
+for (QC_metrics in m){
+  #print(FeaturePlot(sobject, feature=QC_metrics,
+           # pt.size = 0.4, label = T, label.size = 5, order = T, 
+           # split.by = "ID"))
+  print(VlnPlot(sobject, feature=QC_metrics, split.by = "condition", group.by = "seurat_clusters", pt.size = 0.1))
+}
+
+table(sobject$Mouse_ID, sobject$seurat_clusters)
+```
+
+
+*##############################**##############################*
+
+*Clustering Tree*
+```{r}
+#Build a clustering tree
+Idents(sobject) = "seurat_clusters"
+pcs = c(1:30)
+
+sobject= BuildClusterTree(sobject,dims = pcs)
+tree = sobject@tools$BuildClusterTree
+plot.phylo(tree, use.edge.length = T, direction = "downwards", 
+           node.pos = 1, srt = 90, adj = 0.5, label.offset = 0.75, font = 1, cex = 1.75, no.margin = T)
+```
+
+
+
+*##############################**##############################*
+
+
+```{r}
+dir = "/Users/phinguyen/Library/CloudStorage/Dropbox/Hen Lab/Data/SingleCell RNA-seq/2_AllCells_Early-Late-Flx_June 2023/Seurat/Run 2"
+
+save(sobject,file = file.path(dir,paste0("2_all cells_COMBINED POST-FILTERING_no C5_SCT_2023-11-28.RData")))
+```
+
+
+
+
+
+
+
+
+
+
+
